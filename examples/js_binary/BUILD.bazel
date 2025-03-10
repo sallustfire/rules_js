@@ -9,6 +9,7 @@ load("@aspect_bazel_lib//lib:diff_test.bzl", "diff_test")
 load("@aspect_bazel_lib//lib:directory_path.bzl", "directory_path")
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template")
 load("@aspect_bazel_lib//lib:paths.bzl", "BASH_RLOCATION_FUNCTION")
+load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary", "js_test")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@npm//:defs.bzl", "npm_link_all_packages")
@@ -64,6 +65,8 @@ js_run_binary(
     # Uncomment the setting below to see debug output even on a
     # successful run of the build action.
     # silent_on_success = False,
+    # FIXME: Uncomment this and the platform tests pass
+    # use_execroot_entry_point = False,
 )
 
 diff_test(
@@ -132,6 +135,35 @@ diff_test(
     file1 = "//examples:expected_one_ast.json",
     file2 = "out2_no_copy_data_to_bin",
 )
+
+# Also test execution of the binary only depends on the execution platform
+[
+    [
+        platform(
+            name = "run2_platform_{os}".format(os = os),
+            constraint_values = [
+                "@platforms//os:{os}".format(os = os),
+                #                "@platforms//cpu:x86_64",
+            ],
+            visibility = ["//:__subpackages__"],
+        ),
+        platform_transition_filegroup(
+            name = "run2_{os}".format(os = os),
+            srcs = [":run2"],
+            target_platform = ":run2_platform_{os}".format(os = os),
+        ),
+        diff_test(
+            name = "test_js_binary_under_js_run_binary_{os}".format(os = os),
+            file1 = "//examples:expected_one_ast.json",
+            file2 = ":run2_{os}".format(os = os),
+        ),
+    ]
+    for os in [
+        "linux",
+        "macos",
+        "windows",
+    ]
+]
 
 ################################
 # Use case 3

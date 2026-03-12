@@ -15,7 +15,19 @@ load("@bazel_lib//lib:run_binary.bzl", _run_binary = "run_binary")
 load("@bazel_lib//lib:utils.bzl", bazel_lib_utils = "utils")
 load(":js_helpers.bzl", _envs_for_log_level = "envs_for_log_level")
 load(":js_info_files.bzl", _js_info_files = "js_info_files")
-load(":js_library.bzl", _js_library = "js_library")
+
+def _exec_tool_runfiles_impl(ctx):
+    runfiles = ctx.attr.tool[DefaultInfo].default_runfiles
+    files = runfiles.files if runfiles else depset()
+    return [DefaultInfo(files = files)]
+
+_exec_tool_runfiles = rule(
+    doc = "Extracts runfiles from a tool in exec configuration",
+    implementation = _exec_tool_runfiles_impl,
+    attrs = {
+        "tool": attr.label(cfg = "exec", mandatory = True),
+    },
+)
 
 def js_run_binary(
         name,
@@ -360,21 +372,12 @@ See https://github.com/aspect-build/rules_js/tree/main/docs#using-binaries-publi
     if use_execroot_entry_point:
         fixed_env["JS_BINARY__USE_EXECROOT_ENTRY_POINT"] = "1"
 
-        # hoist all runfiles to srcs when running from execroot
-        js_runfiles_lib_name = "{}_runfiles_lib".format(name)
-        _js_library(
-            name = js_runfiles_lib_name,
-            srcs = [tool],
-            # Always tag the target manual since we should only build it when the final target is built.
-            tags = kwargs.get("tags", []) + ["manual"],
-            # Always propagate the testonly attribute
-            testonly = kwargs.get("testonly", False),
-        )
+        # hoist all runfiles to srcs when running from execroot, resolving
+        # them in exec config so native node_modules match the host platform
         js_runfiles_name = "{}_runfiles".format(name)
-        native.filegroup(
+        _exec_tool_runfiles(
             name = js_runfiles_name,
-            output_group = "runfiles",
-            srcs = [":{}".format(js_runfiles_lib_name)],
+            tool = tool,
             # Always tag the target manual since we should only build it when the final target is built.
             tags = kwargs.get("tags", []) + ["manual"],
             # Always propagate the testonly attribute

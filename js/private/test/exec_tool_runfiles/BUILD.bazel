@@ -1,0 +1,3 @@
+load(":exec_tool_runfiles_test.bzl", "exec_tool_runfiles_test_suite")
+
+exec_tool_runfiles_test_suite(name = "exec_tool_runfiles_tests")

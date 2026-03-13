@@ -5,6 +5,7 @@ Simple examples of running JS programs in node with js_binary, js_run_binary, an
 """
 
 load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary", "js_test")
+load("@bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@bazel_lib//lib:diff_test.bzl", "diff_test")
 load("@bazel_lib//lib:directory_path.bzl", "directory_path")
@@ -86,6 +87,49 @@ js_binary(
             file1 = "//examples:expected_one_ast.json",
             file2 = "out2_%s" % t,
         ),
+    ]
+    for t in [
+        "mjs",
+        "cjs",
+    ]
+]
+
+# Test that js_run_binary produces correct output under a target platform
+# transition. This exercises the fix where tool runfiles (including
+# node_modules) must resolve in exec config, not the transitioned target
+# config. Without cfg = "exec" on the runfiles hoisting rule, the tool would
+# get the wrong platform's native addons.
+[
+    platform(
+        name = "run2_platform_%s" % os,
+        constraint_values = [
+            "@platforms//os:%s" % os,
+        ],
+    )
+    for os in [
+        "linux",
+        "macos",
+        "windows",
+    ]
+]
+
+[
+    [
+        platform_transition_filegroup(
+            name = "run2_transitioned_%s_%s" % (os, t),
+            srcs = [":run2_%s" % t],
+            target_platform = ":run2_platform_%s" % os,
+        ),
+        diff_test(
+            name = "test_js_run_binary_platform_transition_%s_%s" % (os, t),
+            file1 = "//examples:expected_one_ast.json",
+            file2 = ":run2_transitioned_%s_%s" % (os, t),
+        ),
+    ]
+    for os in [
+        "linux",
+        "macos",
+        "windows",
     ]
     for t in [
         "mjs",

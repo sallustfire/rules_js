@@ -107,11 +107,17 @@ function logf_debug {
 }
 
 function resolve_execroot_bin_path {
+    # Resolve a short_path to an absolute path under the tool's own output tree.
+    # Uses JS_BINARY__BINDIR (the bin dir baked into the launcher at analysis time)
+    # rather than BAZEL_BINDIR (the action's target-config bin dir set by
+    # js_run_binary). Under cross-compilation these differ: the tool and its
+    # runfiles (entry_point, node_modules, node_wrapper) live in exec config,
+    # while BAZEL_BINDIR points to target config.
     local short_path="$1"
     if [[ "$short_path" == ../* ]]; then
-        echo "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/external/${short_path:3}"
+        echo "$JS_BINARY__EXECROOT/$JS_BINARY__BINDIR/external/${short_path:3}"
     else
-        echo "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/$short_path"
+        echo "$JS_BINARY__EXECROOT/$JS_BINARY__BINDIR/$short_path"
     fi
 }
 
@@ -449,7 +455,9 @@ fi
 if [ "${JS_BINARY__CHDIR:-}" ]; then
     logf_debug "changing directory to user specified package %s" "$JS_BINARY__CHDIR"
     case "$JS_BINARY__CHDIR" in
-    external/*) cd "$(resolve_execroot_bin_path "$JS_BINARY__CHDIR")" ;;
+    # External chdir paths resolve against the action's output tree (BAZEL_BINDIR),
+    # not the tool's own bin dir, since outputs are written to target config.
+    external/*) cd "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/$JS_BINARY__CHDIR" ;;
     *) cd "$JS_BINARY__CHDIR" ;;
     esac
 fi

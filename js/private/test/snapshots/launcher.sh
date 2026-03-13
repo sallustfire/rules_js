@@ -107,17 +107,11 @@ function logf_debug {
 }
 
 function resolve_execroot_bin_path {
-    # Resolve a short_path to an absolute path under the tool's own output tree.
-    # Uses JS_BINARY__BINDIR (the bin dir baked into the launcher at analysis time)
-    # rather than BAZEL_BINDIR (the action's target-config bin dir set by
-    # js_run_binary). Under cross-compilation these differ: the tool and its
-    # runfiles (entry_point, node_modules, node_wrapper) live in exec config,
-    # while BAZEL_BINDIR points to target config.
     local short_path="$1"
     if [[ "$short_path" == ../* ]]; then
-        echo "$JS_BINARY__EXECROOT/$JS_BINARY__BINDIR/external/${short_path:3}"
+        echo "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/external/${short_path:3}"
     else
-        echo "$JS_BINARY__EXECROOT/$JS_BINARY__BINDIR/$short_path"
+        echo "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/$short_path"
     fi
 }
 
@@ -362,7 +356,19 @@ To disable this validation you can set allow_execroot_entry_point_with_no_copy_d
     fi
 fi
 
-if [ "${JS_BINARY__USE_EXECROOT_ENTRY_POINT:-}" ] || [ "${JS_BINARY__NO_RUNFILES:-}" ]; then
+if [ "${JS_BINARY__USE_EXECROOT_ENTRY_POINT:-}" ]; then
+    # Resolve entry_point using JS_BINARY__BINDIR (the tool's own bin dir, which is
+    # exec config when run via run_binary's cfg="exec" tool attr) rather than
+    # BAZEL_BINDIR (which is target config, used for CWD so outputs land correctly).
+    # The tool's entry_point and node_modules are in exec config; Node.js require()
+    # resolves from __dirname (exec config) not process.cwd() (target config).
+    _ep_short_path="js/private/test/shellcheck.js"
+    if [[ "$_ep_short_path" == ../* ]]; then
+        entry_point="$JS_BINARY__EXECROOT/$JS_BINARY__BINDIR/external/${_ep_short_path:3}"
+    else
+        entry_point="$JS_BINARY__EXECROOT/$JS_BINARY__BINDIR/$_ep_short_path"
+    fi
+elif [ "${JS_BINARY__NO_RUNFILES:-}" ]; then
     entry_point=$(resolve_execroot_bin_path "js/private/test/shellcheck.js")
 else
     entry_point="$JS_BINARY__RUNFILES/_main/js/private/test/shellcheck.js"
@@ -455,9 +461,7 @@ fi
 if [ "${JS_BINARY__CHDIR:-}" ]; then
     logf_debug "changing directory to user specified package %s" "$JS_BINARY__CHDIR"
     case "$JS_BINARY__CHDIR" in
-    # External chdir paths resolve against the action's output tree (BAZEL_BINDIR),
-    # not the tool's own bin dir, since outputs are written to target config.
-    external/*) cd "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/$JS_BINARY__CHDIR" ;;
+    external/*) cd "$(resolve_execroot_bin_path "$JS_BINARY__CHDIR")" ;;
     *) cd "$JS_BINARY__CHDIR" ;;
     esac
 fi

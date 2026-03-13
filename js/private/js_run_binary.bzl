@@ -22,10 +22,27 @@ def _exec_tool_runfiles_impl(ctx):
     return [DefaultInfo(files = files)]
 
 _exec_tool_runfiles = rule(
-    doc = "Extracts runfiles from a tool in exec configuration",
+    doc = "Extracts runfiles from a tool in exec configuration so that " +
+          "node_modules contain host-platform native addons and the " +
+          "entry_point resolves from the tool's own output tree.",
     implementation = _exec_tool_runfiles_impl,
     attrs = {
         "tool": attr.label(cfg = "exec", mandatory = True),
+    },
+)
+
+def _tool_runfiles_impl(ctx):
+    runfiles = ctx.attr.tool[DefaultInfo].default_runfiles
+    files = runfiles.files if runfiles else depset()
+    return [DefaultInfo(files = files)]
+
+_tool_runfiles = rule(
+    doc = "Extracts runfiles from a tool in the default (target) " +
+          "configuration so that data files remain accessible via " +
+          "CWD-relative paths (CWD = BAZEL_BINDIR = target config).",
+    implementation = _tool_runfiles_impl,
+    attrs = {
+        "tool": attr.label(mandatory = True),
     },
 )
 
@@ -372,18 +389,35 @@ See https://github.com/aspect-build/rules_js/tree/main/docs#using-binaries-publi
     if use_execroot_entry_point:
         fixed_env["JS_BINARY__USE_EXECROOT_ENTRY_POINT"] = "1"
 
-        # hoist all runfiles to srcs when running from execroot, resolving
-        # them in exec config so native node_modules match the host platform
-        js_runfiles_name = "{}_runfiles".format(name)
+        # Hoist runfiles in exec config so the entry_point and node_modules
+        # (including platform-specific native addons) resolve correctly for
+        # the host platform where the tool actually runs.
+        js_runfiles_exec_name = "{}_runfiles".format(name)
         _exec_tool_runfiles(
-            name = js_runfiles_name,
+            name = js_runfiles_exec_name,
             tool = tool,
             # Always tag the target manual since we should only build it when the final target is built.
             tags = kwargs.get("tags", []) + ["manual"],
             # Always propagate the testonly attribute
             testonly = kwargs.get("testonly", False),
         )
-        extra_srcs.append(":{}".format(js_runfiles_name))
+        extra_srcs.append(":{}".format(js_runfiles_exec_name))
+
+        # Also hoist runfiles in target config so that data files from the
+        # tool's deps remain accessible via CWD-relative paths (CWD =
+        # BAZEL_BINDIR = target config). The tool uses exec-config
+        # entry_point and node_modules (via __dirname-based require()),
+        # but may read data files relative to process.cwd().
+        js_runfiles_target_name = "{}_target_runfiles".format(name)
+        _tool_runfiles(
+            name = js_runfiles_target_name,
+            tool = tool,
+            # Always tag the target manual since we should only build it when the final target is built.
+            tags = kwargs.get("tags", []) + ["manual"],
+            # Always propagate the testonly attribute
+            testonly = kwargs.get("testonly", False),
+        )
+        extra_srcs.append(":{}".format(js_runfiles_target_name))
 
     if allow_execroot_entry_point_with_no_copy_data_to_bin:
         fixed_env["JS_BINARY__ALLOW_EXECROOT_ENTRY_POINT_WITH_NO_COPY_DATA_TO_BIN"] = "1"
